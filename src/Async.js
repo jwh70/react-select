@@ -115,7 +115,7 @@ export default class Async extends Component {
 		}
 
 		const callback = (error, data) => {
-			const options = data && data.options || [];
+			let options = data && data.options || [];
 
             const hasReachedLastPage = pagination && options.length === 0;
 
