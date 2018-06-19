@@ -15,6 +15,7 @@ const propTypes = {
 		PropTypes.string,
 		PropTypes.node
 	]),
+	pagination: PropTypes.bool,				   // automatically load more options when the option list is scrolled to the end; default to false	
 	multi: PropTypes.bool,                     // multi-value input
 	noResultsText: PropTypes.oneOfType([       // field noResultsText, displayed when no options come back from the server
 		PropTypes.string,
@@ -47,6 +48,7 @@ const defaultProps = {
 	loadingPlaceholder: 'Loading...',
 	options: [],
 	searchPromptText: 'Type to search',
+    pagination: false,
 };
 
 export default class Async extends Component {
@@ -59,9 +61,13 @@ export default class Async extends Component {
 			inputValue: '',
 			isLoading: false,
 			options: props.options,
+            isLoadingPage: false,
+            page: 1,            
 		};
 
 		this.onInputChange = this.onInputChange.bind(this);
+        this._onMenuScrollToBottom = this._onMenuScrollToBottom.bind(this);
+        this.loadOptions = this.loadOptions.bind(this);
 	}
 
 	componentDidMount () {
@@ -84,8 +90,8 @@ export default class Async extends Component {
 		this._callback = null;
 	}
 
-	loadOptions (inputValue) {
-		const { loadOptions } = this.props;
+    loadOptions (inputValue, page = 1) {
+		const { loadOptions, pagination } = this.props;
 		const cache = this._cache;
 
 		if (
@@ -96,17 +102,29 @@ export default class Async extends Component {
 
 			this.setState({
 				isLoading: false,
-				options: cache[inputValue]
+				options: cache[inputValue],
+                page: cache[inputValue].page,
 			});
 
-			return;
+            if (
+                !pagination ||
+                (pagination && (cache[inputValue].page >= page || cache[inputValue].hasReachedLastPage))
+            ) {
+                return;
+            }
 		}
 
 		const callback = (error, data) => {
 			const options = data && data.options || [];
 
+            const hasReachedLastPage = pagination && options.length === 0;
+
+            if(page > 1) {
+                options = this.state.options.concat(options);
+            }
+
 			if (cache) {
-				cache[inputValue] = options;
+				cache[inputValue] = { page, options, hasReachedLastPage };
 			}
 
 			if (callback === this._callback) {
@@ -114,7 +132,9 @@ export default class Async extends Component {
 
 				this.setState({
 					isLoading: false,
-					options
+                    isLoadingPage: false,
+                    page,
+                    options,
 				});
 			}
 		};
@@ -122,7 +142,16 @@ export default class Async extends Component {
 		// Ignore all but the most recent request
 		this._callback = callback;
 
-		const promise = loadOptions(inputValue, callback);
+		// const promise = loadOptions(inputValue, callback);
+
+        let promise;
+ 
+        if (pagination) {
+            promise = loadOptions(inputValue, page, callback);
+        } else {
+            promise = loadOptions(inputValue, callback);
+        }
+
 		if (promise) {
 			promise.then(
 				(data) => callback(null, data),
@@ -135,7 +164,8 @@ export default class Async extends Component {
 			!this.state.isLoading
 		) {
 			this.setState({
-				isLoading: true
+				isLoading: true,
+                isLoadingPage: page > this.state.page,
 			});
 		}
 	}
@@ -186,14 +216,21 @@ export default class Async extends Component {
 		this.select.focus();
 	}
 
+    _onMenuScrollToBottom (inputValue) {
+        if (!this.props.pagination || this.state.isLoading) return;
+ 
+        this.loadOptions(inputValue, this.state.page + 1);
+    }
+
 	render () {
 		const { children, loadingPlaceholder, placeholder } = this.props;
-		const { isLoading, options } = this.state;
+        const { isLoading, isLoadingPage, options } = this.state;
 
 		const props = {
 			noResultsText: this.noResultsText(),
 			placeholder: isLoading ? loadingPlaceholder : placeholder,
 			options: (isLoading && loadingPlaceholder) ? [] : options,
+            options: (isLoading && loadingPlaceholder && !isLoadingPage) ? [] : options,
 			ref: (ref) => (this.select = ref),
 		};
 
@@ -201,7 +238,10 @@ export default class Async extends Component {
 			...this.props,
 			...props,
 			isLoading,
-			onInputChange: this.onInputChange
+			onInputChange: this.onInputChange,
+            asyncLoadOptions: this.loadOptions,
+            onInputChange: this._onInputChange,
+            onMenuScrollToBottom: this._onMenuScrollToBottom,
 		});
 	}
 }
